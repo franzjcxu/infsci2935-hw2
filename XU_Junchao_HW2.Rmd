@@ -1,0 +1,379 @@
+---
+title: "XU_Junchao_HW2"
+author: "Junchao Xu"
+date: "3/17/2023"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(pROC)
+```
+```{r}
+# load data
+raw_data <- read.csv("compas-scores-two-years.csv")
+
+# pre-processing
+df <- dplyr::select(raw_data, age, c_charge_degree, race, age_cat, score_text, sex, priors_count, 
+                    days_b_screening_arrest, decile_score, is_recid, two_year_recid, c_jail_in, c_jail_out) %>% 
+        filter(days_b_screening_arrest <= 30) %>%
+        filter(days_b_screening_arrest >= -30) %>%
+        filter(is_recid != -1) %>%
+        filter(c_charge_degree != "O") %>%
+        filter(score_text != 'N/A')
+```
+#Problem 1.Calibration/sufficiency
+
+### **Problem 1a.** Plot the fraction of defendants recidivating within two years (two_year_recid == 1) as a function of risk score (decile_score), for Black defendants (race == "African-American") and White defendants (race == "Caucasian").
+```{r}
+df_black_white <- subset(df, race %in% c("African-American", "Caucasian"))
+
+df_summary <- aggregate(two_year_recid ~ decile_score + race, data = df_black_white, FUN = mean)
+
+# Plot the data using ggplot2
+ggplot(df_summary, aes(x = decile_score, y = two_year_recid, color = race)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Fraction of defendants recidivating within two years",
+       x = "Decile Score",
+       y = "Fraction of defendants with two_year_recid == 1",
+       color = "Race") +
+  theme_minimal()
+```
+```{r}
+df[1:10,]
+```
+
+
+### **Problem 1b.** Based on these plots, does the risk score satisfy sufficiency across racial groups in this dataset? This is somewhat subjective, since we want to allow for approximate equality between groups; justify your answer in a sentence or two.
+Based on the provided fractions for both racial groups, we can observe that as the decile_score increases, the recidivism rate tends to increase for both groups. However, the pattern is not identical across the two groups. For example, at a decile_score of 9, the recidivism rate for Black defendants is slightly higher than that for White defendants, but at a decile_score of 10, the recidivism rate for Black defendants is notably higher.
+
+
+## Problem 2,Error rates/separation
+
+### **Problem 2a.** Plot the distribution of scores received by the positive class (recidivists) and the distribution of scores received by the negative class (non-recidivists) for Black defendants and for White defendants.
+```{r}
+ggplot(df_black_white, aes(x = decile_score, fill = factor(is_recid), color = factor(is_recid))) +
+  geom_histogram(position = "identity", alpha = 0.5, bins = 10) +
+  facet_wrap(~race) +
+  labs(title = "Distribution of scores received by positive and negative classes",
+       x = "Decile Score",
+       y = "Frequency",
+       fill = "is_recid",
+       color = "is_recid") +
+  scale_fill_discrete(labels = c("non-recidivists", "recidivists")) +
+  scale_color_discrete(labels = c("non-recidivists", "recidivists")) +
+  theme_minimal()+
+  facet_grid(race~is_recid)
+```
+
+### **Problem 2b.** Based on these plots, does COMPAS achieve separation between the risk score and race?
+Based on the the plots, COMPAS does not achieve separation between the risk score and race.
+First, for Caucasian, with de increase of decile_score, the number of non-recidivists drops clearly and stepwise. While for African-American, the trend total trend is visible but is not quite stepwise(lower decile_score zone sometimes has lower non-recidivists comparing to their next higher decile_score level).
+
+Second, we can see a general trend for African-American group that with the increase of decile_score, the number of recidivists increases accordingly. But for Caucasian group the trend somewhat goes the opposite.
+
+
+### **Problem 2c.** Report the Positive Predictive Value, False Positive Rate, and False Negative Rate for a risk threshold of 4 (i.e., defendants with decile_score >= 4 are classified as high risk), for Black defendants and for White defendants.
+
+```{r}
+df<-df%>%mutate(pred_recid=ifelse(decile_score>=4,1,0))
+
+df_correct<-df[df$is_recid==df$pred_recid,]
+df_incorrect<-df[df$is_recid!=df$pred_recid,]
+
+df_tp<-df_correct[df_correct$pred_recid==1,]
+df_tn<-df_correct[df_correct$pred_recid==0,]
+
+df_fp<-df_incorrect[df_incorrect$pred_recid==1,]
+df_fn<-df_incorrect[df_incorrect$pred_recid==0,]
+```
+
+Create separate datasets of tp, fp, tn, fn for both groups.
+```{r}
+df_black_tp<-df_tp[df_tp$race=="African-American",]
+df_black_tn<-df_tn[df_tn$race=="African-American",]
+df_black_fp<-df_fp[df_fp$race=="African-American",]
+df_black_fn<-df_fn[df_fn$race=="African-American",]
+
+df_white_tp<-df_tp[df_tp$race=="Caucasian",]
+df_white_tn<-df_tn[df_tn$race=="Caucasian",]
+df_white_fp<-df_fp[df_fp$race=="Caucasian",]
+df_white_fn<-df_fn[df_fn$race=="Caucasian",]
+```
+
+For black;
+```{r}
+tpr_black=nrow(df_black_tp)/(nrow(df_black_tp)+nrow(df_black_fn))
+fpr_black=nrow(df_black_fp)/(nrow(df_black_fp)+nrow(df_black_tn))
+tnr_black=nrow(df_black_tn)/(nrow(df_black_tn)+nrow(df_black_fp))
+fnr_black=nrow(df_black_fn)/(nrow(df_black_fn)+nrow(df_black_tp))
+
+tpr_black
+fpr_black
+tnr_black
+fnr_black
+```
+
+For white:
+```{r}
+tpr_white=nrow(df_white_tp)/(nrow(df_white_tp)+nrow(df_white_fn))
+fpr_white=nrow(df_white_fp)/(nrow(df_white_fp)+nrow(df_white_tn))
+tnr_white=nrow(df_white_tn)/(nrow(df_white_tn)+nrow(df_white_fp))
+fnr_white=nrow(df_white_fn)/(nrow(df_white_fn)+nrow(df_white_tp))
+
+tpr_white
+fpr_white
+tnr_white
+fnr_white
+```
+
+
+### **Problem 2d.** Can we pick two thresholds (one for Black defendants, one for White defendants) such that FPR or FNR are roughly equal for the two groups (say, within 1% of each other)? Plot the trend of FPR and FNR to find out two thresholds that makes FPR or FNR equal for two groups. Choose either of cases (FPR or FNR), and report the PPV for two groups and explain how the thresholds affect the outcome (compared to the threshold of 4 for both groups).
+**Note:** don't count the trivial thresholds such as 0.0 or 0.9
+```{r}
+#generate 8 datasets for both black an white group with threshold range from 1 to 9.
+df_black<-df[df$race=="African-American",]
+df_white<-df[df$race=="Caucasian",]
+
+df_black_thrd_1<-df_black%>%mutate(pred_recid=ifelse(decile_score>=1,1,0))
+df_black_thrd_2<-df_black%>%mutate(pred_recid=ifelse(decile_score>=2,1,0))
+df_black_thrd_3<-df_black%>%mutate(pred_recid=ifelse(decile_score>=3,1,0))
+df_black_thrd_4<-df_black%>%mutate(pred_recid=ifelse(decile_score>=4,1,0))
+df_black_thrd_5<-df_black%>%mutate(pred_recid=ifelse(decile_score>=5,1,0))
+df_black_thrd_6<-df_black%>%mutate(pred_recid=ifelse(decile_score>=6,1,0))
+df_black_thrd_7<-df_black%>%mutate(pred_recid=ifelse(decile_score>=7,1,0))
+df_black_thrd_8<-df_black%>%mutate(pred_recid=ifelse(decile_score>=8,1,0))
+df_black_thrd_9<-df_black%>%mutate(pred_recid=ifelse(decile_score>=9,1,0))
+
+df_white_thrd_1<-df_white%>%mutate(pred_recid=ifelse(decile_score>=1,1,0))
+df_white_thrd_2<-df_white%>%mutate(pred_recid=ifelse(decile_score>=2,1,0))
+df_white_thrd_3<-df_white%>%mutate(pred_recid=ifelse(decile_score>=3,1,0))
+df_white_thrd_4<-df_white%>%mutate(pred_recid=ifelse(decile_score>=4,1,0))
+df_white_thrd_5<-df_white%>%mutate(pred_recid=ifelse(decile_score>=5,1,0))
+df_white_thrd_6<-df_white%>%mutate(pred_recid=ifelse(decile_score>=6,1,0))
+df_white_thrd_7<-df_white%>%mutate(pred_recid=ifelse(decile_score>=7,1,0))
+df_white_thrd_8<-df_white%>%mutate(pred_recid=ifelse(decile_score>=8,1,0))
+df_white_thrd_9<-df_white%>%mutate(pred_recid=ifelse(decile_score>=9,1,0))
+```
+
+```{r}
+library(caret)
+```
+```{r}
+#Calculate FPR and FNR for each datasets.
+
+
+#black datasets
+con_mtx_b1<-confusionMatrix(factor(df_black_thrd_1$pred_recid), factor(df_black_thrd_1$is_recid),positive="1")
+sens_b1<-con_mtx_b1$byClass["Sensitivity"]
+spec_b1<-con_mtx_b1$byClass["Specificity"]
+FNR_b1<-1-sens_b1
+FPR_b1<-1-spec_b1
+
+
+con_mtx_b2<-confusionMatrix(factor(df_black_thrd_2$pred_recid), factor(df_black_thrd_2$is_recid),positive="1")
+sens_b2<-con_mtx_b2$byClass["Sensitivity"]
+spec_b2<-con_mtx_b2$byClass["Specificity"]
+FNR_b2<-1-sens_b2
+FPR_b2<-1-spec_b2
+
+con_mtx_b3<-confusionMatrix(factor(df_black_thrd_3$pred_recid), factor(df_black_thrd_3$is_recid),positive="1")
+sens_b3<-con_mtx_b3$byClass["Sensitivity"]
+spec_b3<-con_mtx_b3$byClass["Specificity"]
+FNR_b3<-1-sens_b3
+FPR_b3<-1-spec_b3
+
+con_mtx_b4<-confusionMatrix(factor(df_black_thrd_4$pred_recid), factor(df_black_thrd_4$is_recid),positive="1")
+sens_b4<-con_mtx_b4$byClass["Sensitivity"]
+spec_b4<-con_mtx_b4$byClass["Specificity"]
+FNR_b4<-1-sens_b4
+FPR_b4<-1-spec_b4
+
+con_mtx_b5<-confusionMatrix(factor(df_black_thrd_5$pred_recid), factor(df_black_thrd_5$is_recid),positive="1")
+sens_b5<-con_mtx_b5$byClass["Sensitivity"]
+spec_b5<-con_mtx_b5$byClass["Specificity"]
+FNR_b5<-1-sens_b5
+FPR_b5<-1-spec_b5
+
+con_mtx_b6<-confusionMatrix(factor(df_black_thrd_6$pred_recid), factor(df_black_thrd_6$is_recid),positive="1")
+sens_b6<-con_mtx_b6$byClass["Sensitivity"]
+spec_b6<-con_mtx_b6$byClass["Specificity"]
+FNR_b6<-1-sens_b6
+FPR_b6<-1-spec_b6
+
+con_mtx_b7<-confusionMatrix(factor(df_black_thrd_7$pred_recid), factor(df_black_thrd_7$is_recid),positive="1")
+sens_b7<-con_mtx_b7$byClass["Sensitivity"]
+spec_b7<-con_mtx_b7$byClass["Specificity"]
+FNR_b7<-1-sens_b7
+FPR_b7<-1-spec_b7
+
+con_mtx_b8<-confusionMatrix(factor(df_black_thrd_8$pred_recid), factor(df_black_thrd_8$is_recid),positive="1")
+sens_b8<-con_mtx_b8$byClass["Sensitivity"]
+spec_b8<-con_mtx_b8$byClass["Specificity"]
+FNR_b8<-1-sens_b8
+FPR_b8<-1-spec_b8
+
+con_mtx_b9<-confusionMatrix(factor(df_black_thrd_9$pred_recid), factor(df_black_thrd_9$is_recid),positive="1")
+sens_b9<-con_mtx_b9$byClass["Sensitivity"]
+spec_b9<-con_mtx_b9$byClass["Specificity"]
+FNR_b9<-1-sens_b9
+FPR_b9<-1-spec_b9
+
+
+
+
+
+
+#white datasets
+con_mtx_w1<-confusionMatrix(factor(df_white_thrd_1$pred_recid), factor(df_white_thrd_1$is_recid),positive="1")
+sens_w1<-con_mtx_w1$byClass["Sensitivity"]
+spec_w1<-con_mtx_w1$byClass["Specificity"]
+FNR_w1<-1-sens_w1
+FPR_w1<-1-spec_w1
+
+
+con_mtx_w2<-confusionMatrix(factor(df_white_thrd_2$pred_recid), factor(df_white_thrd_2$is_recid),positive="1")
+sens_w2<-con_mtx_w2$byClass["Sensitivity"]
+spec_w2<-con_mtx_w2$byClass["Specificity"]
+FNR_w2<-1-sens_w2
+FPR_w2<-1-spec_w2
+
+con_mtx_w3<-confusionMatrix(factor(df_white_thrd_3$pred_recid), factor(df_white_thrd_3$is_recid),positive="1")
+sens_w3<-con_mtx_w3$byClass["Sensitivity"]
+spec_w3<-con_mtx_w3$byClass["Specificity"]
+FNR_w3<-1-sens_w3
+FPR_w3<-1-spec_w3
+
+con_mtx_w4<-confusionMatrix(factor(df_white_thrd_4$pred_recid), factor(df_white_thrd_4$is_recid),positive="1")
+sens_w4<-con_mtx_w4$byClass["Sensitivity"]
+spec_w4<-con_mtx_w4$byClass["Specificity"]
+FNR_w4<-1-sens_w4
+FPR_w4<-1-spec_w4
+
+con_mtx_w5<-confusionMatrix(factor(df_white_thrd_5$pred_recid), factor(df_white_thrd_5$is_recid),positive="1")
+sens_w5<-con_mtx_w5$byClass["Sensitivity"]
+spec_w5<-con_mtx_w5$byClass["Specificity"]
+FNR_w5<-1-sens_w5
+FPR_w5<-1-spec_w5
+
+con_mtx_w6<-confusionMatrix(factor(df_white_thrd_6$pred_recid), factor(df_white_thrd_6$is_recid),positive="1")
+sens_w6<-con_mtx_w6$byClass["Sensitivity"]
+spec_w6<-con_mtx_w6$byClass["Specificity"]
+FNR_w6<-1-sens_w6
+FPR_w6<-1-spec_w6
+
+con_mtx_w7<-confusionMatrix(factor(df_white_thrd_7$pred_recid), factor(df_white_thrd_7$is_recid),positive="1")
+sens_w7<-con_mtx_w7$byClass["Sensitivity"]
+spec_w7<-con_mtx_w7$byClass["Specificity"]
+FNR_w7<-1-sens_w7
+FPR_w7<-1-spec_w7
+
+con_mtx_w8<-confusionMatrix(factor(df_white_thrd_8$pred_recid), factor(df_white_thrd_8$is_recid),positive="1")
+sens_w8<-con_mtx_w8$byClass["Sensitivity"]
+spec_w8<-con_mtx_w8$byClass["Specificity"]
+FNR_w8<-1-sens_w8
+FPR_w8<-1-spec_w8
+
+con_mtx_w9<-confusionMatrix(factor(df_white_thrd_9$pred_recid), factor(df_white_thrd_9$is_recid),positive="1")
+sens_w9<-con_mtx_w9$byClass["Sensitivity"]
+spec_w9<-con_mtx_w9$byClass["Specificity"]
+FNR_w9<-1-sens_w9
+FPR_w9<-1-spec_w9
+
+
+```
+
+
+
+```{r}
+#create dataframes
+black_fpr<-c(FPR_b1,FPR_b2,FPR_b3,FPR_b4,FPR_b5,FPR_b6,FPR_b7,FPR_b8,FPR_b9)
+black_fnr<-c(FNR_b1,FNR_b2,FNR_b3,FNR_b4,FNR_b5,FNR_b6,FNR_b7,FNR_b8,FNR_b9)
+white_fpr<-c(FPR_w1,FPR_w2,FPR_w3,FPR_w4,FPR_w5,FPR_w6,FPR_w7,FPR_w8,FPR_w9)
+white_fnr<-c(FNR_w1,FNR_w2,FNR_w3,FNR_w4,FNR_w5,FNR_w6,FNR_w7,FNR_w8,FNR_w9)
+
+df_2d<-data.frame(black_fpr,black_fnr,white_fpr,white_fnr)
+df_2d<-df_2d%>%mutate(threshold=c(1:9))
+```
+
+
+Grey points stand for White group:
+```{r}
+ggplot(df_2d, aes(x=factor(threshold))) +
+  geom_point(aes(y=black_fnr), stat="identity", position="dodge") +
+  geom_point(aes(y=white_fnr), stat="identity", position="dodge",color="grey") +
+  labs(x="Threshold", y="FNR",fill="Data_type") +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(df_2d, aes(x=factor(threshold))) +
+  geom_point(aes(y=black_fpr), stat="identity", position="dodge") +
+  geom_point(aes(y=white_fpr), stat="identity", position="dodge",color="grey") +
+  labs(x="Threshold", y="FPR",fill="Data_type") +
+  theme_minimal()
+```
+PPV for the two groups:
+
+Black:
+```{r}
+PPV_b1<-con_mtx_b1$table[2, 2]/(con_mtx_b1$table[2, 2]+(con_mtx_b1$table[1, 2]))
+PPV_b2<-con_mtx_b1$table[2, 2]/(con_mtx_b2$table[2, 2]+(con_mtx_b2$table[1, 2]))
+PPV_b3<-con_mtx_b1$table[2, 2]/(con_mtx_b3$table[2, 2]+(con_mtx_b3$table[1, 2]))
+PPV_b4<-con_mtx_b4$table[2, 2]/(con_mtx_b4$table[2, 2]+(con_mtx_b4$table[1, 2]))
+PPV_b5<-con_mtx_b5$table[2, 2]/(con_mtx_b5$table[2, 2]+(con_mtx_b5$table[1, 2]))
+PPV_b6<-con_mtx_b6$table[2, 2]/(con_mtx_b6$table[2, 2]+(con_mtx_b6$table[1, 2]))
+PPV_b7<-con_mtx_b7$table[2, 2]/(con_mtx_b7$table[2, 2]+(con_mtx_b7$table[1, 2]))
+PPV_b8<-con_mtx_b8$table[2, 2]/(con_mtx_b8$table[2, 2]+(con_mtx_b8$table[1, 2]))
+
+PPV_b1
+PPV_b2
+PPV_b3
+PPV_b4
+PPV_b5
+PPV_b6
+PPV_b7
+PPV_b8
+```
+
+White:
+```{r}
+PPV_w1<-con_mtx_w1$table[2, 2]/(con_mtx_w1$table[2, 2]+(con_mtx_w1$table[1, 2]))
+PPV_w2<-con_mtx_w1$table[2, 2]/(con_mtx_w2$table[2, 2]+(con_mtx_w2$table[1, 2]))
+PPV_w3<-con_mtx_w1$table[2, 2]/(con_mtx_w3$table[2, 2]+(con_mtx_w3$table[1, 2]))
+PPV_w4<-con_mtx_w4$table[2, 2]/(con_mtx_w4$table[2, 2]+(con_mtx_w4$table[1, 2]))
+PPV_w5<-con_mtx_w5$table[2, 2]/(con_mtx_w5$table[2, 2]+(con_mtx_w5$table[1, 2]))
+PPV_w6<-con_mtx_w6$table[2, 2]/(con_mtx_w6$table[2, 2]+(con_mtx_w6$table[1, 2]))
+PPV_w7<-con_mtx_w7$table[2, 2]/(con_mtx_w7$table[2, 2]+(con_mtx_w7$table[1, 2]))
+PPV_w8<-con_mtx_w8$table[2, 2]/(con_mtx_w8$table[2, 2]+(con_mtx_w8$table[1, 2]))
+
+PPV_w1
+PPV_w2
+PPV_w3
+PPV_w4
+PPV_w5
+PPV_w6
+PPV_w7
+PPV_w8
+```
+
+
+Based on the two plots, only when the threshold is 1 that the two groups have the same FPR and FNR, which are both extreme values like 0 and 1 and not making sense. On the otherhand, no matter how we change the threshold, white group always hasa lower FPR and higher FNR than the black group. We can see for both of the groups, as the threshold increases, the PPV decreases. Especially when threshold<4, the PPV equals 1 for both groups, when threshold is 4 we get the largest PPV other than 1, which means it's most appropriate when threshold is 4.
+
+
+
+### **Problem 2e.** Considering different strategies to achieve the fairness, how would you suggest model builders calibrate their classifier considering the cost and reward? Give the rationale of your suggestion to model builder.
+**Hint:** Read different threshold strategies explained in the post[https://fairmlbook.org/classification.html]. Compare 5 different strategies (single profit, minimum cost, maximum profit, FNR, independence, separation) in the example analysis [https://docs.responsibly.ai/notebooks/demo-compas-analysis.html] by analyzing and plotting the thresholds and costs using the package.
+
+
+1.Single Profit: I will suggest this approach when the model builder is primarily concerned with maximizing overall performance, without specific fairness constraints. For example, in a marketing campaign, the goal might be to maximize overall sales without being particularly concerned about which demographic groups are targeted.
+
+2.Minimum Cost: I will suggest this approach when the cost of a false negative is particularly high. For example, in a medical diagnosis setting, the cost of failing to diagnose a serious condition could be very high, whereas the cost of a false positive might be relatively low.
+
+3.Maximum Profit: I will suggest this approach when the model builder wants to balance fairness with overall performance. For example, in some cases, the goal might be to maximize overall profits while ensuring that the false negative rate for protected groups does not exceed a certain threshold.
+
+4.False Negative Rate (FNR): I will suggest this approach when the model builder wants to ensure that the classification decisions do not disproportionately harm any particular group. For example, in a job screening process, the goal might be to ensure that the false negative rate for a protected group does not exceed a certain threshold, even if that means accepting a higher false positive rate.
+
+5.Independence/Separation: I will suggest this approach when the model builder wants to ensure that the classification decisions are not based on protected attributes. For example, in a loan approval process, the model builder might want to ensure that decisions are not influenced by factors such as race or gender, and so might train separate classifiers for different demographic groups.
+
